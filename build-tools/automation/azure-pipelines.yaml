@@ -273,6 +273,64 @@ stages:
 
     - template: yaml-templates\fail-on-issue.yaml
 
+# Check - "Xamarin.Android (Ubuntu Build and Smoke Test)"
+- stage: linux_build_test
+  displayName: Ubuntu
+  dependsOn: []
+  jobs:
+  - job: linux_build_test
+    displayName: Build and Smoke Test
+    pool:
+      vmImage: ubuntu-20.04
+    timeoutInMinutes: 240
+    cancelTimeoutInMinutes: 2
+    workspace:
+      clean: all
+    steps:
+    - checkout: self
+      submodules: recursive
+
+    - checkout: monodroid
+      clean: true
+      submodules: recursive
+      path: s/xamarin-android/external/monodroid
+      persistCredentials: true
+
+    - script: rm -rf external/monodroid/external/xamarin-android
+      workingDirectory: $(System.DefaultWorkingDirectory)/xamarin-android
+      displayName: delete external xamarin-android submodule
+
+    - script: make prepare-external-git-dependencies PREPARE_CI=1 CONFIGURATION=$(XA.Build.Configuration)
+      workingDirectory: $(System.DefaultWorkingDirectory)/xamarin-android
+      displayName: make prepare-external-git-dependencies
+
+    - script: make jenkins V=1 PREPARE_CI=1 PREPARE_AUTOPROVISION=1 CONFIGURATION=$(XA.Build.Configuration)
+      workingDirectory: $(System.DefaultWorkingDirectory)/xamarin-android
+      displayName: make jenkins
+
+    - task: MSBuild@1
+      displayName: pack all nupkgs
+      inputs:
+        solution: $(System.DefaultWorkingDirectory)/xamarin-android/build-tools/create-packs/Microsoft.Android.Sdk.proj
+        configuration: $(XA.Build.Configuration)
+        msbuildArguments: >-
+          /t:CreateAllPacks /restore
+          /p:NuGetLicense=$(System.DefaultWorkingDirectory)/xamarin-android/external/monodroid/tools/scripts/License.txt
+          /bl:$(System.DefaultWorkingDirectory)/xamarin-android/bin/Build$(XA.Build.Configuration)/create-all-packs.binlog
+
+    - script: >
+        mkdir -p $(System.DefaultWorkingDirectory)/xamarin-android/bin/Build$(XA.Build.Configuration)/nupkg-linux &&
+        cp $(System.DefaultWorkingDirectory)/xamarin-android/bin/Build$(XA.Build.Configuration)/$(NuGetArtifactName)/Microsoft.Android.Sdk.linux-x64*.nupkg
+        $(System.DefaultWorkingDirectory)/xamarin-android/bin/Build$(XA.Build.Configuration)/nupkg-linux
+      workingDirectory: $(System.DefaultWorkingDirectory)/xamarin-android
+      displayName: copy linux sdk
+
+    - task: PublishPipelineArtifact@1
+      displayName: upload linux sdk
+      inputs:
+        artifactName: nupkg-linux
+        targetPath: $(System.DefaultWorkingDirectory)/xamarin-android/bin/Build$(XA.Build.Configuration)/nupkg-linux
+
 - stage: smoke_tests
   displayName: Smoke Tests
   dependsOn: mac_build
